@@ -118,7 +118,7 @@ if is_mac; then
 fi
 
 set +e
-"$YB_BUILD_SUPPORT_DIR"/jenkins/build.sh
+"$YB_BUILD_SUPPORT_DIR"/jenkins/test.sh
 exit_code=$?
 set -e
 
