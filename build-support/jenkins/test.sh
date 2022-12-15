@@ -81,6 +81,56 @@ readonly COMMON_YB_BUILD_ARGS_FOR_CPP_BUILD=(
 # -------------------------------------------------------------------------------------------------
 # Functions
 
+build_cpp_code() {
+  # Save the source root just in case, but this should not be necessary as we will typically run
+  # this function in a separate process in case it is building code in a non-standard location
+  # (i.e. in a separate directory where we rollback the last commit for regression tracking).
+  local old_yb_src_root=$YB_SRC_ROOT
+
+  expect_num_args 1 "$@"
+  set_yb_src_root "$1"
+
+  heading "Building C++ code in $YB_SRC_ROOT."
+
+  remote_opt=""
+  if [[ ${YB_REMOTE_COMPILATION:-} == "1" ]]; then
+    # This helps with our background script resizing the build cluster, because it looks at all
+    # running build processes with the "--remote" option as of 08/2017.
+    remote_opt="--remote"
+  fi
+
+  # Delegate the actual C++ build to the yb_build.sh script.
+  #
+  # We're explicitly disabling third-party rebuilding here as we've already built third-party
+  # dependencies (or downloaded them, or picked an existing third-party directory) above.
+
+  local yb_build_args=(
+    "${COMMON_YB_BUILD_ARGS_FOR_CPP_BUILD[@]}"
+    "${BUILD_TYPE}"
+  )
+
+  if using_ninja; then
+    # TODO: remove this code when it becomes clear why CMake sometimes gets re-run.
+    log "Building a dummy target to check if Ninja re-runs CMake (it should not)."
+    # The "-d explain" option will make Ninja explain why it is building a particular target.
+    (
+      time "${YB_SRC_ROOT}/yb_build.sh" ${remote_opt} \
+        --make-ninja-extra-args "-d explain" \
+        --target dummy_target \
+        "${yb_build_args[@]}"
+    )
+  fi
+
+  time "$YB_SRC_ROOT/yb_build.sh" ${remote_opt} "${yb_build_args[@]}"
+
+  log "Finished building C++ code (see timing information above)"
+
+  remove_latest_symlink
+
+  # Restore the old source root. See the comment at the top.
+  set_yb_src_root "$old_yb_src_root"
+}
+
 cleanup() {
   if [[ -n ${BUILD_ROOT:-} && ${DONT_DELETE_BUILD_ROOT} == "0" ]]; then
     log "Running the script to clean up build artifacts..."
@@ -236,7 +286,7 @@ export BUILD_ROOT
 # We need to set this prior to the first invocation of yb_build.sh.
 export YB_SKIP_FINAL_LTO_LINK=1
 
-"${YB_SRC_ROOT}/yb_build.sh" --cmake-unit-tests
+# "${YB_SRC_ROOT}/yb_build.sh" --cmake-unit-tests
 
 find_or_download_ysql_snapshots
 find_or_download_thirdparty
@@ -350,19 +400,19 @@ else
 fi
 
 # We have a retry loop around CMake because it sometimes fails due to NFS unavailability.
-declare -i -r MAX_CMAKE_RETRIES=3
-declare -i cmake_attempt_index=1
-while true; do
-  if "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" --cmake-only --no-remote; then
-    log "CMake succeeded after attempt $cmake_attempt_index"
-    break
-  fi
-  if [[ $cmake_attempt_index -eq ${MAX_CMAKE_RETRIES} ]]; then
-    fatal "CMake failed after ${MAX_CMAKE_RETRIES} attempts, giving up."
-  fi
-  heading "CMake failed at attempt $cmake_attempt_index, re-trying"
-  (( cmake_attempt_index+=1 ))
-done
+# declare -i -r MAX_CMAKE_RETRIES=3
+# declare -i cmake_attempt_index=1
+# while true; do
+#   if "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" --cmake-only --no-remote; then
+#     log "CMake succeeded after attempt $cmake_attempt_index"
+#     break
+#   fi
+#   if [[ $cmake_attempt_index -eq ${MAX_CMAKE_RETRIES} ]]; then
+#     fatal "CMake failed after ${MAX_CMAKE_RETRIES} attempts, giving up."
+#   fi
+#   heading "CMake failed at attempt $cmake_attempt_index, re-trying"
+#   (( cmake_attempt_index+=1 ))
+# done
 
 # Only enable test core dumps for certain build types.
 if [[ ${BUILD_TYPE} != "asan" ]]; then
@@ -396,7 +446,7 @@ export YB_SKIP_INITIAL_SYS_CATALOG_SNAPSHOT=1
 
 heading "Building C++ code"
 
-build_cpp_code "$YB_SRC_ROOT"
+# build_cpp_code "$YB_SRC_ROOT"
 
 log "Disk usage after C++ build:"
 show_disk_usage
@@ -414,28 +464,28 @@ log "ALL OF YUGABYTE C++ BUILD FINISHED"
 
 export YB_SKIP_INITIAL_SYS_CATALOG_SNAPSHOT=0
 
-if [[ ${BUILD_TYPE} != "tsan" ]]; then
-  declare -i initdb_attempt_index=1
-  declare -i -r MAX_INITDB_ATTEMPTS=3
+# if [[ ${BUILD_TYPE} != "tsan" ]]; then
+#   declare -i initdb_attempt_index=1
+#   declare -i -r MAX_INITDB_ATTEMPTS=3
 
-  while [[ $initdb_attempt_index -le ${MAX_INITDB_ATTEMPTS} ]]; do
-    log "Creating initial system catalog snapshot (attempt $initdb_attempt_index)"
-    if ! time "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" initdb --skip-java; then
-      initdb_err_msg="Failed to create initial sys catalog snapshot at "
-      initdb_err_msg+="attempt ${initdb_attempt_index}"
-      log "${initdb_err_msg}. PostgreSQL tests may take longer."
-      FAILURES+="$initdb_err_msg"$'\n'
-      EXIT_STATUS=1
-    else
-      log "Successfully created initial system catalog snapshot at attempt ${initdb_attempt_index}."
-      break
-    fi
-    (( initdb_attempt_index+=1 ))
-  done
-  if [[ ${initdb_attempt_index} -gt ${MAX_INITDB_ATTEMPTS} ]]; then
-    fatal "Failed to run create initial sys catalog snapshot after ${MAX_INITDB_ATTEMPTS} attempts."
-  fi
-fi
+#   while [[ $initdb_attempt_index -le ${MAX_INITDB_ATTEMPTS} ]]; do
+#     log "Creating initial system catalog snapshot (attempt $initdb_attempt_index)"
+#     if ! time "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" initdb --skip-java; then
+#       initdb_err_msg="Failed to create initial sys catalog snapshot at "
+#       initdb_err_msg+="attempt ${initdb_attempt_index}"
+#       log "${initdb_err_msg}. PostgreSQL tests may take longer."
+#       FAILURES+="$initdb_err_msg"$'\n'
+#       EXIT_STATUS=1
+#     else
+#       log "Successfully created initial system catalog snapshot at attempt ${initdb_attempt_index}."
+#       break
+#     fi
+#     (( initdb_attempt_index+=1 ))
+#   done
+#   if [[ ${initdb_attempt_index} -gt ${MAX_INITDB_ATTEMPTS} ]]; then
+#     fatal "Failed to run create initial sys catalog snapshot after ${MAX_INITDB_ATTEMPTS} attempts."
+#   fi
+# fi
 
 # -------------------------------------------------------------------------------------------------
 # Dependency graph analysis allowing to determine what tests to run.
@@ -464,6 +514,192 @@ fi
 #   pom.xml changes we've just made, forcing us to always run Java tests.
 current_git_commit=$(git rev-parse HEAD)
 
+# -------------------------------------------------------------------------------------------------
+# Final LTO linking
+# -------------------------------------------------------------------------------------------------
+
+export YB_SKIP_FINAL_LTO_LINK=0
+if [[ ${YB_LINKING_TYPE} == *-lto ]]; then
+  yb_build_cmd_line_for_lto=(
+    "${YB_SRC_ROOT}/yb_build.sh"
+    "${BUILD_TYPE}" --skip-java --force-run-cmake
+  )
+
+  if [[ $( grep -E 'MemTotal: .* kB' /proc/meminfo ) =~ ^.*\ ([0-9]+)\ .*$ ]]; then
+    total_mem_kb=${BASH_REMATCH[1]}
+    # LTO linking uses about 12.5 GB for building one binary. Try to avoid OOM.
+    yb_build_parallelism_for_lto=$(( total_mem_kb / (13 * 1024 * 1024) ))
+    if [[ ${yb_build_parallelism_for_lto} -lt 1 ]]; then
+      yb_build_parallelism_for_lto=1
+    fi
+    log "Total memory size: ${total_mem_kb} KB," \
+        "using LTO linking parallelism ${yb_build_parallelism_for_lto}."
+  else
+    log "Warning: could not determine total amount of memory, using parallelism of 1 for LTO."
+    yb_build_parallelism_for_lto=1
+  fi
+  yb_build_cmd_line_for_lto+=( "-j${yb_build_parallelism_for_lto}" )
+
+  log "Performing final LTO linking"
+  ( set -x; "${yb_build_cmd_line_for_lto[@]}" )
+fi
+
+# -------------------------------------------------------------------------------------------------
+# Java build
+# -------------------------------------------------------------------------------------------------
+
+export YB_MVN_LOCAL_REPO=$BUILD_ROOT/m2_repository
+
+# java_build_failed=false
+# if [[ ${YB_BUILD_JAVA} == "1" && ${YB_SKIP_BUILD} != "1" ]]; then
+#   set_mvn_parameters
+
+#   heading "Building Java code..."
+#   if [[ -n ${JAVA_HOME:-} ]]; then
+#     export PATH=${JAVA_HOME}/bin:${PATH}
+#   fi
+
+#   build_yb_java_code_in_all_dirs clean
+
+#   heading "Java 'clean' build is complete, will now actually build Java code"
+
+#   for java_project_dir in "${yb_java_project_dirs[@]}"; do
+#     pushd "${java_project_dir}"
+#     heading "Building Java code in directory '${java_project_dir}'"
+#     if ! build_yb_java_code_with_retries -DskipTests clean install; then
+#       EXIT_STATUS=1
+#       FAILURES+="Java build failed in directory '${java_project_dir}'"$'\n'
+#       java_build_failed=true
+#     else
+#       log "Java code build in directory '${java_project_dir}' SUCCEEDED"
+#     fi
+#     popd
+#   done
+
+#   if [[ ${java_build_failed} == "true" ]]; then
+#     fatal "Java build failed, stopping here."
+#   fi
+
+#   heading "Running a test locally to force Maven to download all test-time dependencies"
+#   (
+#     cd "${YB_SRC_ROOT}/java"
+#     build_yb_java_code test \
+#                        -Dtest=org.yb.client.TestTestUtils#testDummy \
+#                        "${MVN_OPTS_TO_DOWNLOAD_ALL_DEPS[@]}"
+#   )
+#   heading "Finished running a test locally to force Maven to download all test-time dependencies"
+
+#   # Tell gen_version_info.py to store the Git SHA1 of the commit really present in the code
+#   # being built, not our temporary commit to update pom.xml files.
+#   get_current_git_sha1
+#   export YB_VERSION_INFO_GIT_SHA1=$current_git_sha1
+
+#   collect_java_tests
+
+#   log "Finished building Java code (see timing information above)"
+# fi
+
+# -------------------------------------------------------------------------------------------------
+# Now that all C++ and Java code has been built, test creating a package.
+#
+# Skip this in ASAN/TSAN, as there are still unresolved issues with dynamic libraries there
+# (conflicting versions of the same library coming from thirdparty vs. Linuxbrew) as of 12/04/2017.
+
+# if [[ ${YB_SKIP_CREATING_RELEASE_PACKAGE:-} != "1" &&
+#       ! ${build_type} =~ ^(asan|tsan)$ ]]; then
+#   heading "Creating a distribution package"
+
+#   package_path_file="${BUILD_ROOT}/package_path.txt"
+#   rm -f "${package_path_file}"
+
+#   # We are passing --build_args="--skip-build" using the "=" syntax, because otherwise it would be
+#   # interpreted as an argument to yb_release.py, causing an error.
+#   #
+#   # Everything has already been built by this point, so there is no need to invoke compilation at
+#   # all as part of building the release package.
+#   yb_release_cmd=(
+#     "${YB_SRC_ROOT}/yb_release"
+#     --build "${build_type}"
+#     --build_root "${BUILD_ROOT}"
+#     --build_args="--skip-build"
+#     --save_release_path_to_file "${package_path_file}"
+#     --commit "${current_git_commit}"
+#     --force
+#   )
+
+#   if [[ ${YB_BUILD_YW:-0} == "1" ]]; then
+#     # This is needed for build.sbt to use YB Client jars that we've built and installed to
+#     # YB_MVN_LOCAL_REPO.
+#     export USE_MAVEN_LOCAL=true
+#     yb_release_cmd+=( --yw )
+#   fi
+
+#   (
+#     set -x
+#     time "${yb_release_cmd[@]}"
+#   )
+
+#   YB_PACKAGE_PATH=$( cat "${package_path_file}" )
+#   if [[ -z ${YB_PACKAGE_PATH} ]]; then
+#     fatal "File '${package_path_file}' is empty"
+#   fi
+#   if [[ ! -f ${YB_PACKAGE_PATH} ]]; then
+#     fatal "Package path stored in '${package_path_file}' does not exist: ${YB_PACKAGE_PATH}"
+#   fi
+
+#   # Upload the package.
+#   if ! is_jenkins_phabricator_build; then
+#     # shellcheck source=ent/build-support/upload_package.sh
+#     . "${YB_SRC_ROOT}/ent/build-support/upload_package.sh"
+#     if ! "${package_uploaded}" && ! "${package_upload_skipped}"; then
+#       FAILURES+=$'Package upload failed\n'
+#       EXIT_STATUS=1
+#     fi
+#   fi
+
+#   if grep -q "CentOS Linux 7" /etc/os-release; then
+#     log "This is CentOS 7, doing a quick sanity-check of the release package using Docker."
+
+#     # Have to export this for the script inside Docker to see it.
+#     export YB_PACKAGE_PATH
+
+#     # Do a quick sanity test on the release package. This verifies that we can at least start the
+#     # cluster, which requires all RPATHs to be set correctly, either at the time the package is
+#     # built (new approach), or by post_install.sh (legacy Linuxbrew based approach).
+#     docker run -i \
+#       -e YB_PACKAGE_PATH \
+#       --mount "type=bind,source=${YB_SRC_ROOT}/build,target=/mnt/dir_with_package" centos:7 \
+#       bash -c '
+#         set -euo pipefail -x
+#         yum install -y libatomic
+#         package_name=${YB_PACKAGE_PATH##*/}
+#         package_path=/mnt/dir_with_package/$package_name
+#         set +e
+#         # This will be "yugabyte-a.b.c.d/" (with a trailing slash).
+#         dir_name_inside_archive=$(tar tf "$package_path" | head -1)
+#         set -e
+#         # Remove the trailing slash.
+#         dir_name_inside_archive=${dir_name_inside_archive%/}
+#         cd /tmp
+#         tar xzf "${package_path}"
+#         cd "${dir_name_inside_archive}"
+#         bin/post_install.sh
+#         bin/yb-ctl create
+#         bin/ysqlsh -c "create table t (k int primary key, v int);
+#                        insert into t values (1, 2);
+#                        select * from t;"'
+#   else
+#     log "Not doing a quick sanity-check of the release package. OS: ${OSTYPE}."
+#   fi
+# else
+#   log "Skipping creating distribution package. Build type: $build_type, OSTYPE: ${OSTYPE}," \
+#       "YB_SKIP_CREATING_RELEASE_PACKAGE: ${YB_SKIP_CREATING_RELEASE_PACKAGE:-undefined}."
+
+#   # yugabyted-ui is usually built during package build.  Test yugabyted-ui build here when not
+#   # building package.
+#   log "Building yugabyted-ui"
+#   time "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" --build-yugabyted-ui --skip-java
+# fi
 
 # -------------------------------------------------------------------------------------------------
 # Run tests, either on Spark or locally.
