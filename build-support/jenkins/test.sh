@@ -519,30 +519,30 @@ current_git_commit=$(git rev-parse HEAD)
 # -------------------------------------------------------------------------------------------------
 
 export YB_SKIP_FINAL_LTO_LINK=0
-if [[ ${YB_LINKING_TYPE} == *-lto ]]; then
-  yb_build_cmd_line_for_lto=(
-    "${YB_SRC_ROOT}/yb_build.sh"
-    "${BUILD_TYPE}" --skip-java --force-run-cmake
-  )
+# if [[ ${YB_LINKING_TYPE} == *-lto ]]; then
+#   yb_build_cmd_line_for_lto=(
+#     "${YB_SRC_ROOT}/yb_build.sh"
+#     "${BUILD_TYPE}" --skip-java --force-run-cmake
+#   )
 
-  if [[ $( grep -E 'MemTotal: .* kB' /proc/meminfo ) =~ ^.*\ ([0-9]+)\ .*$ ]]; then
-    total_mem_kb=${BASH_REMATCH[1]}
-    # LTO linking uses about 12.5 GB for building one binary. Try to avoid OOM.
-    yb_build_parallelism_for_lto=$(( total_mem_kb / (13 * 1024 * 1024) ))
-    if [[ ${yb_build_parallelism_for_lto} -lt 1 ]]; then
-      yb_build_parallelism_for_lto=1
-    fi
-    log "Total memory size: ${total_mem_kb} KB," \
-        "using LTO linking parallelism ${yb_build_parallelism_for_lto}."
-  else
-    log "Warning: could not determine total amount of memory, using parallelism of 1 for LTO."
-    yb_build_parallelism_for_lto=1
-  fi
-  yb_build_cmd_line_for_lto+=( "-j${yb_build_parallelism_for_lto}" )
+#   if [[ $( grep -E 'MemTotal: .* kB' /proc/meminfo ) =~ ^.*\ ([0-9]+)\ .*$ ]]; then
+#     total_mem_kb=${BASH_REMATCH[1]}
+#     # LTO linking uses about 12.5 GB for building one binary. Try to avoid OOM.
+#     yb_build_parallelism_for_lto=$(( total_mem_kb / (13 * 1024 * 1024) ))
+#     if [[ ${yb_build_parallelism_for_lto} -lt 1 ]]; then
+#       yb_build_parallelism_for_lto=1
+#     fi
+#     log "Total memory size: ${total_mem_kb} KB," \
+#         "using LTO linking parallelism ${yb_build_parallelism_for_lto}."
+#   else
+#     log "Warning: could not determine total amount of memory, using parallelism of 1 for LTO."
+#     yb_build_parallelism_for_lto=1
+#   fi
+#   yb_build_cmd_line_for_lto+=( "-j${yb_build_parallelism_for_lto}" )
 
-  log "Performing final LTO linking"
-  ( set -x; "${yb_build_cmd_line_for_lto[@]}" )
-fi
+#   log "Performing final LTO linking"
+#   ( set -x; "${yb_build_cmd_line_for_lto[@]}" )
+# fi
 
 # -------------------------------------------------------------------------------------------------
 # Java build

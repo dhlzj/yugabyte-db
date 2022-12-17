@@ -131,12 +131,12 @@ build_cpp_code() {
   set_yb_src_root "$old_yb_src_root"
 }
 
-cleanup() {
-  if [[ -n ${BUILD_ROOT:-} && ${DONT_DELETE_BUILD_ROOT} == "0" ]]; then
-    log "Running the script to clean up build artifacts..."
-    "$YB_BUILD_SUPPORT_DIR/jenkins/post-build-clean.sh"
-  fi
-}
+# cleanup() {
+#   if [[ -n ${BUILD_ROOT:-} && ${DONT_DELETE_BUILD_ROOT} == "0" ]]; then
+#     log "Running the script to clean up build artifacts..."
+#     "$YB_BUILD_SUPPORT_DIR/jenkins/post-build-clean.sh"
+#   fi
+# }
 
 # =================================================================================================
 # Main script
