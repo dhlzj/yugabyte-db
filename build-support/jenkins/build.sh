@@ -355,9 +355,9 @@ TEST_LOG_DIR="${BUILD_ROOT}/test-logs"
 
 # If we're running inside Jenkins (the BUILD_ID is set), then install an exit handler which will
 # clean up all of our build results.
-if is_jenkins; then
-  trap cleanup EXIT
-fi
+# if is_jenkins; then
+#   trap cleanup EXIT
+# fi
 
 configure_remote_compilation
 
