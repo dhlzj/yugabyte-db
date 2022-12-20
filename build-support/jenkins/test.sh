@@ -149,12 +149,12 @@ if ! "$YB_BUILD_SUPPORT_DIR/common-build-env-test.sh"; then
   fatal "Test of the common build environment failed, cannot proceed."
 fi
 
-log "Removing old JSON-based test report files"
-(
-  set -x
-  find . -name "*_test_report.json" -exec rm -f '{}' \;
-  rm -f test_results.json test_failures.json
-)
+# log "Removing old JSON-based test report files"
+# (
+#   set -x
+#   find . -name "*_test_report.json" -exec rm -f '{}' \;
+#   rm -f test_results.json test_failures.json
+# )
 
 activate_virtualenv
 set_pythonpath
@@ -226,53 +226,53 @@ set_build_root
 set_common_test_paths
 
 # As soon as we know build root, we need to do the necessary workspace cleanup.
-if is_jenkins; then
-  # Delete the build root by default on Jenkins.
-  DONT_DELETE_BUILD_ROOT=${DONT_DELETE_BUILD_ROOT:-0}
-else
-  log "Not running on Jenkins, not deleting the build root by default."
-  # Don't delete the build root by default.
-  DONT_DELETE_BUILD_ROOT=${DONT_DELETE_BUILD_ROOT:-1}
-fi
+# if is_jenkins; then
+#   # Delete the build root by default on Jenkins.
+#   DONT_DELETE_BUILD_ROOT=${DONT_DELETE_BUILD_ROOT:-0}
+# else
+#   log "Not running on Jenkins, not deleting the build root by default."
+#   # Don't delete the build root by default.
+#   DONT_DELETE_BUILD_ROOT=${DONT_DELETE_BUILD_ROOT:-1}
+# fi
 
 # Remove testing artifacts from the previous run before we do anything else. Otherwise, if we fail
 # during the "build" step, Jenkins will archive the test logs from the previous run, thinking they
 # came from this run, and confuse us when we look at the failed build.
 
-build_root_deleted=false
-if [[ ${DONT_DELETE_BUILD_ROOT} == "0" ]]; then
-  if [[ -L ${BUILD_ROOT} ]]; then
-    # If the build root is a symlink, we have to find out what it is pointing to and delete that
-    # directory as well.
-    build_root_real_path=$( readlink "${BUILD_ROOT}" )
-    log "BUILD_ROOT ('${BUILD_ROOT}') is a symlink to '${build_root_real_path}'"
-    rm -rf "${build_root_real_path}"
-    unlink "${BUILD_ROOT}"
-    build_root_deleted=true
-  else
-    log "Deleting BUILD_ROOT ('$BUILD_ROOT')."
-    ( set -x; rm -rf "$BUILD_ROOT" )
-    build_root_deleted=true
-  fi
-fi
+# build_root_deleted=false
+# if [[ ${DONT_DELETE_BUILD_ROOT} == "0" ]]; then
+#   if [[ -L ${BUILD_ROOT} ]]; then
+#     # If the build root is a symlink, we have to find out what it is pointing to and delete that
+#     # directory as well.
+#     build_root_real_path=$( readlink "${BUILD_ROOT}" )
+#     log "BUILD_ROOT ('${BUILD_ROOT}') is a symlink to '${build_root_real_path}'"
+#     rm -rf "${build_root_real_path}"
+#     unlink "${BUILD_ROOT}"
+#     build_root_deleted=true
+#   else
+#     log "Deleting BUILD_ROOT ('$BUILD_ROOT')."
+#     ( set -x; rm -rf "$BUILD_ROOT" )
+#     build_root_deleted=true
+#   fi
+# fi
 
-if [[ ${build_root_deleted} == "false" ]]; then
-  log "Skipped deleting BUILD_ROOT ('${BUILD_ROOT}'), only deleting ${YB_TEST_LOG_ROOT_DIR}."
-  rm -rf "${YB_TEST_LOG_ROOT_DIR}"
-fi
+# if [[ ${build_root_deleted} == "false" ]]; then
+#   log "Skipped deleting BUILD_ROOT ('${BUILD_ROOT}'), only deleting ${YB_TEST_LOG_ROOT_DIR}."
+#   rm -rf "${YB_TEST_LOG_ROOT_DIR}"
+# fi
 
-if is_jenkins; then
-  if [[ ${build_root_deleted} == "true" ]]; then
-    log "Deleting yb-test-logs from all subdirectories of ${YB_BUILD_PARENT_DIR} so that Jenkins " \
-        "does not get confused with old JUnit-style XML files."
-    ( set -x; rm -rf "$YB_BUILD_PARENT_DIR"/*/yb-test-logs )
+# if is_jenkins; then
+#   if [[ ${build_root_deleted} == "true" ]]; then
+#     log "Deleting yb-test-logs from all subdirectories of ${YB_BUILD_PARENT_DIR} so that Jenkins " \
+#         "does not get confused with old JUnit-style XML files."
+#     ( set -x; rm -rf "$YB_BUILD_PARENT_DIR"/*/yb-test-logs )
 
-    log "Deleting old packages from '${YB_BUILD_PARENT_DIR}'"
-    ( set -x; rm -rf "${YB_BUILD_PARENT_DIR}/yugabyte-"*"-$build_type-"*".tar.gz" )
-  else
-    log "No need to delete yb-test-logs or old packages, build root already deleted."
-  fi
-fi
+#     log "Deleting old packages from '${YB_BUILD_PARENT_DIR}'"
+#     ( set -x; rm -rf "${YB_BUILD_PARENT_DIR}/yugabyte-"*"-$build_type-"*".tar.gz" )
+#   else
+#     log "No need to delete yb-test-logs or old packages, build root already deleted."
+#   fi
+# fi
 
 mkdir_safe "${BUILD_ROOT}"
 
@@ -519,30 +519,30 @@ current_git_commit=$(git rev-parse HEAD)
 # -------------------------------------------------------------------------------------------------
 
 export YB_SKIP_FINAL_LTO_LINK=0
-if [[ ${YB_LINKING_TYPE} == *-lto ]]; then
-  yb_build_cmd_line_for_lto=(
-    "${YB_SRC_ROOT}/yb_build.sh"
-    "${BUILD_TYPE}" --skip-java --force-run-cmake
-  )
+# if [[ ${YB_LINKING_TYPE} == *-lto ]]; then
+#   yb_build_cmd_line_for_lto=(
+#     "${YB_SRC_ROOT}/yb_build.sh"
+#     "${BUILD_TYPE}" --skip-java --force-run-cmake
+#   )
 
-  if [[ $( grep -E 'MemTotal: .* kB' /proc/meminfo ) =~ ^.*\ ([0-9]+)\ .*$ ]]; then
-    total_mem_kb=${BASH_REMATCH[1]}
-    # LTO linking uses about 12.5 GB for building one binary. Try to avoid OOM.
-    yb_build_parallelism_for_lto=$(( total_mem_kb / (13 * 1024 * 1024) ))
-    if [[ ${yb_build_parallelism_for_lto} -lt 1 ]]; then
-      yb_build_parallelism_for_lto=1
-    fi
-    log "Total memory size: ${total_mem_kb} KB," \
-        "using LTO linking parallelism ${yb_build_parallelism_for_lto}."
-  else
-    log "Warning: could not determine total amount of memory, using parallelism of 1 for LTO."
-    yb_build_parallelism_for_lto=1
-  fi
-  yb_build_cmd_line_for_lto+=( "-j${yb_build_parallelism_for_lto}" )
+#   if [[ $( grep -E 'MemTotal: .* kB' /proc/meminfo ) =~ ^.*\ ([0-9]+)\ .*$ ]]; then
+#     total_mem_kb=${BASH_REMATCH[1]}
+#     # LTO linking uses about 12.5 GB for building one binary. Try to avoid OOM.
+#     yb_build_parallelism_for_lto=$(( total_mem_kb / (13 * 1024 * 1024) ))
+#     if [[ ${yb_build_parallelism_for_lto} -lt 1 ]]; then
+#       yb_build_parallelism_for_lto=1
+#     fi
+#     log "Total memory size: ${total_mem_kb} KB," \
+#         "using LTO linking parallelism ${yb_build_parallelism_for_lto}."
+#   else
+#     log "Warning: could not determine total amount of memory, using parallelism of 1 for LTO."
+#     yb_build_parallelism_for_lto=1
+#   fi
+#   yb_build_cmd_line_for_lto+=( "-j${yb_build_parallelism_for_lto}" )
 
-  log "Performing final LTO linking"
-  ( set -x; "${yb_build_cmd_line_for_lto[@]}" )
-fi
+#   log "Performing final LTO linking"
+#   ( set -x; "${yb_build_cmd_line_for_lto[@]}" )
+# fi
 
 # -------------------------------------------------------------------------------------------------
 # Java build
