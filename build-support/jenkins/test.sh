@@ -163,6 +163,16 @@ set_build_root
 
 set_common_test_paths
 
+# As soon as we know build root, we need to do the necessary workspace cleanup.
+if is_jenkins; then
+  # Delete the build root by default on Jenkins.
+  DONT_DELETE_BUILD_ROOT=${DONT_DELETE_BUILD_ROOT:-0}
+else
+  log "Not running on Jenkins, not deleting the build root by default."
+  # Don't delete the build root by default.
+  DONT_DELETE_BUILD_ROOT=${DONT_DELETE_BUILD_ROOT:-1}
+fi
+
 mkdir_safe "${BUILD_ROOT}"
 
 readonly BUILD_ROOT
@@ -265,6 +275,7 @@ if [[ $YB_RUN_AFFECTED_TESTS_ONLY == "1" ]]; then
   )
 fi
 
+#######
 if [[ ${YB_ENABLE_STATIC_ANALYZER:-auto} == "auto" ]]; then
   if is_clang &&
      is_linux &&
@@ -286,7 +297,7 @@ else
   log "YB_ENABLE_STATIC_ANALYZER is already set to $YB_ENABLE_STATIC_ANALYZER," \
       "not setting automatically"
 fi
-
+#######
 
 # Only enable test core dumps for certain build types.
 if [[ ${BUILD_TYPE} != "asan" ]]; then
@@ -312,8 +323,9 @@ if [[ ${YB_BUILD_CPP} == "1" ]] && ! which ctest >/dev/null; then
   fatal "ctest not found, won't be able to run C++ tests"
 fi
 
+######
 export YB_SKIP_INITIAL_SYS_CATALOG_SNAPSHOT=1
-
+######
 
 # -------------------------------------------------------------------------------------------------
 # End of the C++ code build, except maybe the final LTO linking step.
@@ -322,9 +334,9 @@ export YB_SKIP_INITIAL_SYS_CATALOG_SNAPSHOT=1
 # -------------------------------------------------------------------------------------------------
 # Running initdb
 # -------------------------------------------------------------------------------------------------
-
+######
 export YB_SKIP_INITIAL_SYS_CATALOG_SNAPSHOT=0
-
+######
 
 # -------------------------------------------------------------------------------------------------
 # Dependency graph analysis allowing to determine what tests to run.
@@ -353,18 +365,11 @@ fi
 #   pom.xml changes we've just made, forcing us to always run Java tests.
 current_git_commit=$(git rev-parse HEAD)
 
-# -------------------------------------------------------------------------------------------------
-# Final LTO linking
-# -------------------------------------------------------------------------------------------------
-
+#######
 export YB_SKIP_FINAL_LTO_LINK=0
-
-# -------------------------------------------------------------------------------------------------
-# Java build
-# -------------------------------------------------------------------------------------------------
+#######
 
 export YB_MVN_LOCAL_REPO=$BUILD_ROOT/m2_repository
-
 
 # -------------------------------------------------------------------------------------------------
 # Now that all C++ and Java code has been built, test creating a package.
