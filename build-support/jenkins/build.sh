@@ -600,3 +600,5 @@ if [[ ${YB_BUILD_JAVA} == "1" && ${YB_SKIP_BUILD} != "1" ]]; then
 
   log "Finished building Java code (see timing information above)"
 fi
+
+exit ${EXIT_STATUS}
