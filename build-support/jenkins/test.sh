@@ -73,8 +73,63 @@ echo "Build script ${BASH_SOURCE[0]} is running"
 # shellcheck source=build-support/common-test-env.sh
 . "${BASH_SOURCE%/*}/../common-test-env.sh"
 
+# readonly COMMON_YB_BUILD_ARGS_FOR_CPP_BUILD=(
+#   --no-rebuild-thirdparty
+#   --skip-java
+# )
+
 # -------------------------------------------------------------------------------------------------
 # Functions
+
+# build_cpp_code() {
+#   # Save the source root just in case, but this should not be necessary as we will typically run
+#   # this function in a separate process in case it is building code in a non-standard location
+#   # (i.e. in a separate directory where we rollback the last commit for regression tracking).
+#   local old_yb_src_root=$YB_SRC_ROOT
+
+#   expect_num_args 1 "$@"
+#   set_yb_src_root "$1"
+
+#   heading "Building C++ code in $YB_SRC_ROOT."
+
+#   remote_opt=""
+#   if [[ ${YB_REMOTE_COMPILATION:-} == "1" ]]; then
+#     # This helps with our background script resizing the build cluster, because it looks at all
+#     # running build processes with the "--remote" option as of 08/2017.
+#     remote_opt="--remote"
+#   fi
+
+#   # Delegate the actual C++ build to the yb_build.sh script.
+#   #
+#   # We're explicitly disabling third-party rebuilding here as we've already built third-party
+#   # dependencies (or downloaded them, or picked an existing third-party directory) above.
+
+#   local yb_build_args=(
+#     "${COMMON_YB_BUILD_ARGS_FOR_CPP_BUILD[@]}"
+#     "${BUILD_TYPE}"
+#   )
+
+#   if using_ninja; then
+#     # TODO: remove this code when it becomes clear why CMake sometimes gets re-run.
+#     log "Building a dummy target to check if Ninja re-runs CMake (it should not)."
+#     # The "-d explain" option will make Ninja explain why it is building a particular target.
+#     (
+#       time "${YB_SRC_ROOT}/yb_build.sh" ${remote_opt} \
+#         --make-ninja-extra-args "-d explain" \
+#         --target dummy_target \
+#         "${yb_build_args[@]}"
+#     )
+#   fi
+
+#   time "$YB_SRC_ROOT/yb_build.sh" ${remote_opt} "${yb_build_args[@]}"
+
+#   log "Finished building C++ code (see timing information above)"
+
+#   remove_latest_symlink
+
+#   # Restore the old source root. See the comment at the top.
+#   set_yb_src_root "$old_yb_src_root"
+# }
 
 cleanup() {
   if [[ -n ${BUILD_ROOT:-} && ${DONT_DELETE_BUILD_ROOT} == "0" ]]; then
@@ -93,6 +148,13 @@ cd "$YB_SRC_ROOT"
 if ! "$YB_BUILD_SUPPORT_DIR/common-build-env-test.sh"; then
   fatal "Test of the common build environment failed, cannot proceed."
 fi
+
+# log "Removing old JSON-based test report files"
+# (
+#   set -x
+#   find . -name "*_test_report.json" -exec rm -f '{}' \;
+#   rm -f test_results.json test_failures.json
+# )
 
 activate_virtualenv
 set_pythonpath
@@ -137,8 +199,10 @@ log "YB_DOWNLOAD_THIRDPARTY=$YB_DOWNLOAD_THIRDPARTY"
 decide_whether_to_use_linuxbrew
 
 if [[ -z ${YB_LINKING_TYPE:-} ]]; then
-  if using_linuxbrew && [[ "${YB_COMPILER_TYPE}" =~ ^clang[0-9]+$ && "${BUILD_TYPE}" == "release" ]]
-  then
+  if ! is_mac && [[
+        ${YB_COMPILER_TYPE} =~ ^clang[0-9]+$ &&
+        ${BUILD_TYPE} == "release"
+      ]]; then
     export YB_LINKING_TYPE=full-lto
   else
     export YB_LINKING_TYPE=dynamic
@@ -173,6 +237,45 @@ else
   DONT_DELETE_BUILD_ROOT=${DONT_DELETE_BUILD_ROOT:-1}
 fi
 
+# Remove testing artifacts from the previous run before we do anything else. Otherwise, if we fail
+# during the "build" step, Jenkins will archive the test logs from the previous run, thinking they
+# came from this run, and confuse us when we look at the failed build.
+
+# build_root_deleted=false
+# if [[ ${DONT_DELETE_BUILD_ROOT} == "0" ]]; then
+#   if [[ -L ${BUILD_ROOT} ]]; then
+#     # If the build root is a symlink, we have to find out what it is pointing to and delete that
+#     # directory as well.
+#     build_root_real_path=$( readlink "${BUILD_ROOT}" )
+#     log "BUILD_ROOT ('${BUILD_ROOT}') is a symlink to '${build_root_real_path}'"
+#     rm -rf "${build_root_real_path}"
+#     unlink "${BUILD_ROOT}"
+#     build_root_deleted=true
+#   else
+#     log "Deleting BUILD_ROOT ('$BUILD_ROOT')."
+#     ( set -x; rm -rf "$BUILD_ROOT" )
+#     build_root_deleted=true
+#   fi
+# fi
+
+# if [[ ${build_root_deleted} == "false" ]]; then
+#   log "Skipped deleting BUILD_ROOT ('${BUILD_ROOT}'), only deleting ${YB_TEST_LOG_ROOT_DIR}."
+#   rm -rf "${YB_TEST_LOG_ROOT_DIR}"
+# fi
+
+# if is_jenkins; then
+#   if [[ ${build_root_deleted} == "true" ]]; then
+#     log "Deleting yb-test-logs from all subdirectories of ${YB_BUILD_PARENT_DIR} so that Jenkins " \
+#         "does not get confused with old JUnit-style XML files."
+#     ( set -x; rm -rf "$YB_BUILD_PARENT_DIR"/*/yb-test-logs )
+
+#     log "Deleting old packages from '${YB_BUILD_PARENT_DIR}'"
+#     ( set -x; rm -rf "${YB_BUILD_PARENT_DIR}/yugabyte-"*"-$build_type-"*".tar.gz" )
+#   else
+#     log "No need to delete yb-test-logs or old packages, build root already deleted."
+#   fi
+# fi
+
 mkdir_safe "${BUILD_ROOT}"
 
 readonly BUILD_ROOT
@@ -185,6 +288,7 @@ export BUILD_ROOT
 # We need to set this prior to the first invocation of yb_build.sh.
 export YB_SKIP_FINAL_LTO_LINK=1
 
+# "${YB_SRC_ROOT}/yb_build.sh" --cmake-unit-tests
 
 find_or_download_ysql_snapshots
 find_or_download_thirdparty
@@ -275,7 +379,6 @@ if [[ $YB_RUN_AFFECTED_TESTS_ONLY == "1" ]]; then
   )
 fi
 
-#######
 # if [[ ${YB_ENABLE_STATIC_ANALYZER:-auto} == "auto" ]]; then
 #   if is_clang &&
 #      is_linux &&
@@ -297,7 +400,21 @@ fi
 #   log "YB_ENABLE_STATIC_ANALYZER is already set to $YB_ENABLE_STATIC_ANALYZER," \
 #       "not setting automatically"
 # fi
-#######
+
+# We have a retry loop around CMake because it sometimes fails due to NFS unavailability.
+# declare -i -r MAX_CMAKE_RETRIES=3
+# declare -i cmake_attempt_index=1
+# while true; do
+#   if "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" --cmake-only --no-remote; then
+#     log "CMake succeeded after attempt $cmake_attempt_index"
+#     break
+#   fi
+#   if [[ $cmake_attempt_index -eq ${MAX_CMAKE_RETRIES} ]]; then
+#     fatal "CMake failed after ${MAX_CMAKE_RETRIES} attempts, giving up."
+#   fi
+#   heading "CMake failed at attempt $cmake_attempt_index, re-trying"
+#   (( cmake_attempt_index+=1 ))
+# done
 
 # Only enable test core dumps for certain build types.
 if [[ ${BUILD_TYPE} != "asan" ]]; then
@@ -323,9 +440,21 @@ if [[ ${YB_BUILD_CPP} == "1" ]] && ! which ctest >/dev/null; then
   fatal "ctest not found, won't be able to run C++ tests"
 fi
 
-######
 export YB_SKIP_INITIAL_SYS_CATALOG_SNAPSHOT=1
-######
+
+# -------------------------------------------------------------------------------------------------
+# Build C++ code regardless of YB_BUILD_CPP, because we'll also need it for Java tests.
+# -------------------------------------------------------------------------------------------------
+
+heading "Building C++ code"
+
+# build_cpp_code "$YB_SRC_ROOT"
+
+log "Disk usage after C++ build:"
+show_disk_usage
+
+# We can grep for this line in the log to determine the stage of the build job.
+log "ALL OF YUGABYTE C++ BUILD FINISHED"
 
 # -------------------------------------------------------------------------------------------------
 # End of the C++ code build, except maybe the final LTO linking step.
@@ -334,9 +463,31 @@ export YB_SKIP_INITIAL_SYS_CATALOG_SNAPSHOT=1
 # -------------------------------------------------------------------------------------------------
 # Running initdb
 # -------------------------------------------------------------------------------------------------
-######
+
 export YB_SKIP_INITIAL_SYS_CATALOG_SNAPSHOT=0
-######
+
+# if [[ ${BUILD_TYPE} != "tsan" ]]; then
+#   declare -i initdb_attempt_index=1
+#   declare -i -r MAX_INITDB_ATTEMPTS=3
+
+#   while [[ $initdb_attempt_index -le ${MAX_INITDB_ATTEMPTS} ]]; do
+#     log "Creating initial system catalog snapshot (attempt $initdb_attempt_index)"
+#     if ! time "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" initdb --skip-java; then
+#       initdb_err_msg="Failed to create initial sys catalog snapshot at "
+#       initdb_err_msg+="attempt ${initdb_attempt_index}"
+#       log "${initdb_err_msg}. PostgreSQL tests may take longer."
+#       FAILURES+="$initdb_err_msg"$'\n'
+#       EXIT_STATUS=1
+#     else
+#       log "Successfully created initial system catalog snapshot at attempt ${initdb_attempt_index}."
+#       break
+#     fi
+#     (( initdb_attempt_index+=1 ))
+#   done
+#   if [[ ${initdb_attempt_index} -gt ${MAX_INITDB_ATTEMPTS} ]]; then
+#     fatal "Failed to run create initial sys catalog snapshot after ${MAX_INITDB_ATTEMPTS} attempts."
+#   fi
+# fi
 
 # -------------------------------------------------------------------------------------------------
 # Dependency graph analysis allowing to determine what tests to run.
@@ -365,11 +516,90 @@ fi
 #   pom.xml changes we've just made, forcing us to always run Java tests.
 current_git_commit=$(git rev-parse HEAD)
 
-#######
+# -------------------------------------------------------------------------------------------------
+# Final LTO linking
+# -------------------------------------------------------------------------------------------------
+
 export YB_SKIP_FINAL_LTO_LINK=0
-#######
+# if [[ ${YB_LINKING_TYPE} == *-lto ]]; then
+#   yb_build_cmd_line_for_lto=(
+#     "${YB_SRC_ROOT}/yb_build.sh"
+#     "${BUILD_TYPE}" --skip-java --force-run-cmake
+#   )
+
+#   if [[ $( grep -E 'MemTotal: .* kB' /proc/meminfo ) =~ ^.*\ ([0-9]+)\ .*$ ]]; then
+#     total_mem_kb=${BASH_REMATCH[1]}
+#     # LTO linking uses about 12.5 GB for building one binary. Try to avoid OOM.
+#     yb_build_parallelism_for_lto=$(( total_mem_kb / (13 * 1024 * 1024) ))
+#     if [[ ${yb_build_parallelism_for_lto} -lt 1 ]]; then
+#       yb_build_parallelism_for_lto=1
+#     fi
+#     log "Total memory size: ${total_mem_kb} KB," \
+#         "using LTO linking parallelism ${yb_build_parallelism_for_lto}."
+#   else
+#     log "Warning: could not determine total amount of memory, using parallelism of 1 for LTO."
+#     yb_build_parallelism_for_lto=1
+#   fi
+#   yb_build_cmd_line_for_lto+=( "-j${yb_build_parallelism_for_lto}" )
+
+#   log "Performing final LTO linking"
+#   ( set -x; "${yb_build_cmd_line_for_lto[@]}" )
+# fi
+
+# -------------------------------------------------------------------------------------------------
+# Java build
+# -------------------------------------------------------------------------------------------------
 
 export YB_MVN_LOCAL_REPO=$BUILD_ROOT/m2_repository
+
+# java_build_failed=false
+# if [[ ${YB_BUILD_JAVA} == "1" && ${YB_SKIP_BUILD} != "1" ]]; then
+#   set_mvn_parameters
+
+#   heading "Building Java code..."
+#   if [[ -n ${JAVA_HOME:-} ]]; then
+#     export PATH=${JAVA_HOME}/bin:${PATH}
+#   fi
+
+#   build_yb_java_code_in_all_dirs clean
+
+#   heading "Java 'clean' build is complete, will now actually build Java code"
+
+#   for java_project_dir in "${yb_java_project_dirs[@]}"; do
+#     pushd "${java_project_dir}"
+#     heading "Building Java code in directory '${java_project_dir}'"
+#     if ! build_yb_java_code_with_retries -DskipTests clean install; then
+#       EXIT_STATUS=1
+#       FAILURES+="Java build failed in directory '${java_project_dir}'"$'\n'
+#       java_build_failed=true
+#     else
+#       log "Java code build in directory '${java_project_dir}' SUCCEEDED"
+#     fi
+#     popd
+#   done
+
+#   if [[ ${java_build_failed} == "true" ]]; then
+#     fatal "Java build failed, stopping here."
+#   fi
+
+#   heading "Running a test locally to force Maven to download all test-time dependencies"
+#   (
+#     cd "${YB_SRC_ROOT}/java"
+#     build_yb_java_code test \
+#                        -Dtest=org.yb.client.TestTestUtils#testDummy \
+#                        "${MVN_OPTS_TO_DOWNLOAD_ALL_DEPS[@]}"
+#   )
+#   heading "Finished running a test locally to force Maven to download all test-time dependencies"
+
+#   # Tell gen_version_info.py to store the Git SHA1 of the commit really present in the code
+#   # being built, not our temporary commit to update pom.xml files.
+#   get_current_git_sha1
+#   export YB_VERSION_INFO_GIT_SHA1=$current_git_sha1
+
+#   collect_java_tests
+
+#   log "Finished building Java code (see timing information above)"
+# fi
 
 # -------------------------------------------------------------------------------------------------
 # Now that all C++ and Java code has been built, test creating a package.
