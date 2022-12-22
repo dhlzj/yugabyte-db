@@ -120,6 +120,7 @@ fi
 set +e
 "$YB_BUILD_SUPPORT_DIR"/jenkins/test.sh
 exit_code=$?
+log "Testing jenkins/test.sh exit code ${exit_code}"
 set -e
 
 # Un-gzip build log files for easy viewing in the Jenkins UI.
@@ -129,4 +130,5 @@ for f in build/debug/test-logs/*.txt.gz; do
   fi
 done
 
+log "Testing Final jb-jenkins-test.sh exit code ${exit_code}"
 exit $exit_code

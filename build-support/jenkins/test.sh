@@ -825,4 +825,5 @@ if [[ -n ${FAILURES} ]]; then
   echo >&2 "${FAILURES}"
 fi
 
+log "Testing Final test.sh exit code ${exit_code}"
 exit ${EXIT_STATUS}
