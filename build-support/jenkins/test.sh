@@ -607,101 +607,101 @@ export YB_MVN_LOCAL_REPO=$BUILD_ROOT/m2_repository
 # Skip this in ASAN/TSAN, as there are still unresolved issues with dynamic libraries there
 # (conflicting versions of the same library coming from thirdparty vs. Linuxbrew) as of 12/04/2017.
 
-if [[ ${YB_SKIP_CREATING_RELEASE_PACKAGE:-} != "1" &&
-      ! ${build_type} =~ ^(asan|tsan)$ ]]; then
-  heading "Creating a distribution package"
+# if [[ ${YB_SKIP_CREATING_RELEASE_PACKAGE:-} != "1" &&
+#       ! ${build_type} =~ ^(asan|tsan)$ ]]; then
+#   heading "Creating a distribution package"
 
-  package_path_file="${BUILD_ROOT}/package_path.txt"
-  rm -f "${package_path_file}"
+#   package_path_file="${BUILD_ROOT}/package_path.txt"
+#   rm -f "${package_path_file}"
 
   # We are passing --build_args="--skip-build" using the "=" syntax, because otherwise it would be
   # interpreted as an argument to yb_release.py, causing an error.
   #
   # Everything has already been built by this point, so there is no need to invoke compilation at
   # all as part of building the release package.
-  yb_release_cmd=(
-    "${YB_SRC_ROOT}/yb_release"
-    --build "${build_type}"
-    --build_root "${BUILD_ROOT}"
-    --build_args="--skip-build"
-    --save_release_path_to_file "${package_path_file}"
-    --commit "${current_git_commit}"
-    --force
-  )
+#   yb_release_cmd=(
+#     "${YB_SRC_ROOT}/yb_release"
+#     --build "${build_type}"
+#     --build_root "${BUILD_ROOT}"
+#     --build_args="--skip-build"
+#     --save_release_path_to_file "${package_path_file}"
+#     --commit "${current_git_commit}"
+#     --force
+#   )
 
-  if [[ ${YB_BUILD_YW:-0} == "1" ]]; then
-    # This is needed for build.sbt to use YB Client jars that we've built and installed to
-    # YB_MVN_LOCAL_REPO.
-    export USE_MAVEN_LOCAL=true
-    yb_release_cmd+=( --yw )
-  fi
+#   if [[ ${YB_BUILD_YW:-0} == "1" ]]; then
+#     # This is needed for build.sbt to use YB Client jars that we've built and installed to
+#     # YB_MVN_LOCAL_REPO.
+#     export USE_MAVEN_LOCAL=true
+#     yb_release_cmd+=( --yw )
+#   fi
 
-  (
-    set -x
-    time "${yb_release_cmd[@]}"
-  )
+#   (
+#     set -x
+#     time "${yb_release_cmd[@]}"
+#   )
 
-  YB_PACKAGE_PATH=$( cat "${package_path_file}" )
-  if [[ -z ${YB_PACKAGE_PATH} ]]; then
-    fatal "File '${package_path_file}' is empty"
-  fi
-  if [[ ! -f ${YB_PACKAGE_PATH} ]]; then
-    fatal "Package path stored in '${package_path_file}' does not exist: ${YB_PACKAGE_PATH}"
-  fi
+#   YB_PACKAGE_PATH=$( cat "${package_path_file}" )
+#   if [[ -z ${YB_PACKAGE_PATH} ]]; then
+#     fatal "File '${package_path_file}' is empty"
+#   fi
+#   if [[ ! -f ${YB_PACKAGE_PATH} ]]; then
+#     fatal "Package path stored in '${package_path_file}' does not exist: ${YB_PACKAGE_PATH}"
+#   fi
 
-  # Upload the package.
-  if ! is_jenkins_phabricator_build; then
-    # shellcheck source=ent/build-support/upload_package.sh
-    . "${YB_SRC_ROOT}/ent/build-support/upload_package.sh"
-    if ! "${package_uploaded}" && ! "${package_upload_skipped}"; then
-      FAILURES+=$'Package upload failed\n'
-      EXIT_STATUS=1
-    fi
-  fi
-  log "Upload the package exit code ${EXIT_STATUS}"
-  if grep -q "CentOS Linux 7" /etc/os-release; then
-    log "This is CentOS 7, doing a quick sanity-check of the release package using Docker."
+#   # Upload the package.
+#   if ! is_jenkins_phabricator_build; then
+#     # shellcheck source=ent/build-support/upload_package.sh
+#     . "${YB_SRC_ROOT}/ent/build-support/upload_package.sh"
+#     if ! "${package_uploaded}" && ! "${package_upload_skipped}"; then
+#       FAILURES+=$'Package upload failed\n'
+#       EXIT_STATUS=1
+#     fi
+#   fi
+#   log "Upload the package exit code ${EXIT_STATUS}"
+#   if grep -q "CentOS Linux 7" /etc/os-release; then
+#     log "This is CentOS 7, doing a quick sanity-check of the release package using Docker."
 
-    # Have to export this for the script inside Docker to see it.
-    export YB_PACKAGE_PATH
+#     # Have to export this for the script inside Docker to see it.
+#     export YB_PACKAGE_PATH
 
-    # Do a quick sanity test on the release package. This verifies that we can at least start the
-    # cluster, which requires all RPATHs to be set correctly, either at the time the package is
-    # built (new approach), or by post_install.sh (legacy Linuxbrew based approach).
-    docker run -i \
-      -e YB_PACKAGE_PATH \
-      --mount "type=bind,source=${YB_SRC_ROOT}/build,target=/mnt/dir_with_package" centos:7 \
-      bash -c '
-        set -euo pipefail -x
-        yum install -y libatomic
-        package_name=${YB_PACKAGE_PATH##*/}
-        package_path=/mnt/dir_with_package/$package_name
-        set +e
-        # This will be "yugabyte-a.b.c.d/" (with a trailing slash).
-        dir_name_inside_archive=$(tar tf "$package_path" | head -1)
-        set -e
-        # Remove the trailing slash.
-        dir_name_inside_archive=${dir_name_inside_archive%/}
-        cd /tmp
-        tar xzf "${package_path}"
-        cd "${dir_name_inside_archive}"
-        bin/post_install.sh
-        bin/yb-ctl create
-        bin/ysqlsh -c "create table t (k int primary key, v int);
-                       insert into t values (1, 2);
-                       select * from t;"'
-  else
-    log "Not doing a quick sanity-check of the release package. OS: ${OSTYPE}."
-  fi
-else
-  log "Skipping creating distribution package. Build type: $build_type, OSTYPE: ${OSTYPE}," \
-      "YB_SKIP_CREATING_RELEASE_PACKAGE: ${YB_SKIP_CREATING_RELEASE_PACKAGE:-undefined}."
+#     # Do a quick sanity test on the release package. This verifies that we can at least start the
+#     # cluster, which requires all RPATHs to be set correctly, either at the time the package is
+#     # built (new approach), or by post_install.sh (legacy Linuxbrew based approach).
+#     docker run -i \
+#       -e YB_PACKAGE_PATH \
+#       --mount "type=bind,source=${YB_SRC_ROOT}/build,target=/mnt/dir_with_package" centos:7 \
+#       bash -c '
+#         set -euo pipefail -x
+#         yum install -y libatomic
+#         package_name=${YB_PACKAGE_PATH##*/}
+#         package_path=/mnt/dir_with_package/$package_name
+#         set +e
+#         # This will be "yugabyte-a.b.c.d/" (with a trailing slash).
+#         dir_name_inside_archive=$(tar tf "$package_path" | head -1)
+#         set -e
+#         # Remove the trailing slash.
+#         dir_name_inside_archive=${dir_name_inside_archive%/}
+#         cd /tmp
+#         tar xzf "${package_path}"
+#         cd "${dir_name_inside_archive}"
+#         bin/post_install.sh
+#         bin/yb-ctl create
+#         bin/ysqlsh -c "create table t (k int primary key, v int);
+#                        insert into t values (1, 2);
+#                        select * from t;"'
+#   else
+#     log "Not doing a quick sanity-check of the release package. OS: ${OSTYPE}."
+#   fi
+# else
+#   log "Skipping creating distribution package. Build type: $build_type, OSTYPE: ${OSTYPE}," \
+#       "YB_SKIP_CREATING_RELEASE_PACKAGE: ${YB_SKIP_CREATING_RELEASE_PACKAGE:-undefined}."
 
-  # yugabyted-ui is usually built during package build.  Test yugabyted-ui build here when not
-  # building package.
-  log "Building yugabyted-ui"
-  time "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" --build-yugabyted-ui --skip-java
-fi
+#   # yugabyted-ui is usually built during package build.  Test yugabyted-ui build here when not
+#   # building package.
+#   log "Building yugabyted-ui"
+#   time "${YB_SRC_ROOT}/yb_build.sh" "${BUILD_TYPE}" --build-yugabyted-ui --skip-java
+# fi
 
 # -------------------------------------------------------------------------------------------------
 # Run tests, either on Spark or locally.
