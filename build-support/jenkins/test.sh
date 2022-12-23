@@ -658,7 +658,7 @@ if [[ ${YB_SKIP_CREATING_RELEASE_PACKAGE:-} != "1" &&
       EXIT_STATUS=1
     fi
   fi
-
+  log "Upload the package exit code ${EXIT_STATUS}"
   if grep -q "CentOS Linux 7" /etc/os-release; then
     log "This is CentOS 7, doing a quick sanity-check of the release package using Docker."
 
@@ -825,5 +825,5 @@ if [[ -n ${FAILURES} ]]; then
   echo >&2 "${FAILURES}"
 fi
 
-log "Testing Final test.sh exit code ${exit_code}"
+log "Testing Final test.sh exit code ${EXIT_STATUS}"
 exit ${EXIT_STATUS}
