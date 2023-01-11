@@ -10,8 +10,8 @@
 <div class="left-sidebar-wrap">
   <div class="left-sidebar-wrap-inner">
     <nav>
-      {{- if .Site.Params.versions -}}
-        <div class="dd-chang-showmobile desktop-hide main-heading-with-version">
+      {{- if and .Site.Params.versions (not .Params.unversioned) -}}
+        <div class="dd-change-showmobile desktop-hide dropdown-list">
           <ul>
             <li class="nav-item dropdown">
               {{- partial "navbar-version-selector.html" . -}}
